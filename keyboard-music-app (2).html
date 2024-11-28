@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Musical Keyboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            background-color: #f0f0f0;
+        }
+        #keyboard { 
+            display: flex; 
+            gap: 10px; 
+            margin: 20px; 
+        }
+        .key { 
+            width: 50px; 
+            height: 50px; 
+            background-color: white; 
+            border: 2px solid black; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            cursor: pointer;
+        }
+        .key.active { 
+            background-color: yellow; 
+        }
+        #chord-info, #activation-message {
+            font-size: 24px;
+            margin: 20px;
+        }
+        #activation-button {
+            padding: 10px 20px;
+            font-size: 18px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="activation-message">Click to Activate Sound</div>
+    <button id="activation-button">Start Audio</button>
+    <div id="chord-info" style="display:none;">Current Chord: None</div>
+    <div id="keyboard" style="display:none;"></div>
+
+    <script>
+        const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        const CHORD_MODIFIERS = {
+            'q': { name: 'Major', intervals: [0, 4, 7] },
+            'w': { name: 'Minor', intervals: [0, 3, 7] },
+            'e': { name: 'Diminished', intervals: [0, 3, 6] },
+            'r': { name: 'Augmented', intervals: [0, 4, 8] }
+        };
+        const EXTENSIONS = {
+            'a': { name: '7', addition: 10 },
+            'b': { name: 'maj7', addition: 11 },
+            'c': { name: 'm7', addition: 10 },
+            'd': { name: 'dim7', addition: 9 },
+            'f': { name: 'sus4', intervals: [0, 5, 7] }
+        };
+
+        class MusicApp {
+            constructor() {
+                this.synth = new Tone.PolySynth().toDestination();
+                this.currentChord = null;
+                this.activeKeys = new Set();
+                this.setupActivation();
+            }
+
+            setupActivation() {
+                const activationButton = document.getElementById('activation-button');
+                activationButton.addEventListener('click', async () => {
+                    try {
+                        await Tone.start();
+                        document.getElementById('activation-message').style.display = 'none';
+                        activationButton.style.display = 'none';
+                        document.getElementById('chord-info').style.display = 'block';
+                        document.getElementById('keyboard').style.display = 'flex';
+                        this.setupKeyboard();
+                        this.setupEventListeners();
+                    } catch (error) {
+                        console.error('Audio context start failed:', error);
+                    }
+                });
+            }
+
+            setupKeyboard() {
+                const keyboard = document.getElementById('keyboard');
+                const keys = 'HJKLM;'.split('');
+                keys.forEach(key => {
+                    const keyElement = document.createElement('div');
+                    keyElement.className = 'key';
+                    keyElement.textContent = key;
+                    keyElement.dataset.key = key;
+                    keyboard.appendChild(keyElement);
+                });
+            }
+
+            setupEventListeners() {
+                window.addEventListener('keydown', (e) => {
+                    const key = e.key.toUpperCase();
+                    if ('HJKLM;'.includes(key)) {
+                        this.playNote(key);
+                    }
+                    if ('QWER'.includes(key.toUpperCase())) {
+                        this.setChordType(key.toLowerCase());
+                    }
+                    if ('ABCDF'.includes(key.toUpperCase())) {
+                        this.addChordExtension(key.toLowerCase());
+                    }
+                });
+
+                window.addEventListener('keyup', (e) => {
+                    const key = e.key.toUpperCase();
+                    if ('HJKLM;'.includes(key)) {
+                        this.stopNote(key);
+                    }
+                });
+
+                document.querySelectorAll('.key').forEach(keyEl => {
+                    keyEl.addEventListener('mousedown', () => {
+                        this.playNote(keyEl.dataset.key);
+                    });
+                    keyEl.addEventListener('mouseup', () => {
+                        this.stopNote(keyEl.dataset.key);
+                    });
+                });
+            }
+
+            getNoteIndex(key) {
+                const keyMap = { 'H': 0, 'J': 1, 'K': 2, 'L': 3, 'M': 4, ';': 5 };
+                return keyMap[key];
+            }
+
+            playNote(key) {
+                const noteIndex = this.getNoteIndex(key);
+                const keyElement = document.querySelector(`.key[data-key="${key}"]`);
+                
+                if (keyElement) keyElement.classList.add('active');
+                
+                const baseNote = NOTES[noteIndex];
+                const midiNote = Tone.Frequency(baseNote + '4').toMidi();
+                this.synth.triggerAttack(Tone.Frequency(midiNote, 'midi').transpose(0).toNote());
+                
+                this.activeKeys.add(key);
+                this.updateChordInfo();
+            }
+
+            stopNote(key) {
+                const keyElement = document.querySelector(`.key[data-key="${key}"]`);
+                if (keyElement) keyElement.classList.remove('active');
+                
+                const noteIndex = this.getNoteIndex(key);
+                const baseNote = NOTES[noteIndex];
+                const midiNote = Tone.Frequency(baseNote + '4').toMidi();
+                this.synth.triggerRelease(Tone.Frequency(midiNote, 'midi').transpose(0).toNote());
+                
+                this.activeKeys.delete(key);
+                this.updateChordInfo();
+            }
+
+            setChordType(modifier) {
+                this.currentChordType = CHORD_MODIFIERS[modifier];
+                this.updateChordInfo();
+            }
+
+            addChordExtension(extension) {
+                this.currentExtension = EXTENSIONS[extension];
+                this.updateChordInfo();
+            }
+
+            updateChordInfo() {
+                const chordInfoEl = document.getElementById('chord-info');
+                if (this.activeKeys.size === 0) {
+                    chordInfoEl.textContent = 'Current Chord: None';
+                    return;
+                }
+
+                const baseNoteIndex = this.getNoteIndex([...this.activeKeys][0]);
+                const baseNote = NOTES[baseNoteIndex];
+                let chordName = baseNote;
+
+                if (this.currentChordType) {
+                    chordName += ' ' + this.currentChordType.name;
+                }
+
+                if (this.currentExtension) {
+                    chordName += this.currentExtension.name ? ' ' + this.currentExtension.name : '';
+                }
+
+                chordInfoEl.textContent = `Current Chord: ${chordName}`;
+            }
+        }
+
+        // Initialize the app
+        new MusicApp();
+    </script>
+</body>
+</html>
